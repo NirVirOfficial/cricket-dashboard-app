@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
 # Load data
 @st.cache_data
@@ -130,47 +130,34 @@ dream_team = create_dream_team()
 st.write("Best 11 Players from Both Teams:")
 st.write(", ".join(dream_team))
 
-from sklearn.ensemble import RandomForestClassifier
-
+# Prediction Model
+st.header("🔮 Match Prediction")
 def predict_winner():
     try:
-        # Use filtered_df to simulate match history between the two teams
-        if filtered_df.empty:
-            return "Not enough data", 0
+        prediction_df = filtered_df.copy()
+        prediction_df['wides'] = prediction_df['wides'].fillna(0)
+        prediction_df['extras'] = prediction_df['extras'].fillna(0)
+        prediction_df['runs_off_bat'] = prediction_df['runs_off_bat'].fillna(0)
 
-        # Add custom match-level features
-        match_stats = filtered_df.groupby('match_id').agg({
-            'batting_team': 'first',
-            'bowling_team': 'first',
+        match_stats = prediction_df.groupby('match_id').agg({
             'runs_off_bat': 'sum',
             'extras': 'sum',
-            'wicket_type': 'count',
+            'wides': 'sum',
+            'batting_team': 'first'
         }).reset_index()
 
-        # Create additional features
-        match_stats['total_runs'] = match_stats['runs_off_bat'] + match_stats['extras']
-        match_stats['bat_team_rating'] = match_stats['batting_team'].map(df['batting_team'].value_counts(normalize=True))
-        match_stats['bowl_team_rating'] = match_stats['bowling_team'].map(df['bowling_team'].value_counts(normalize=True))
-        match_stats['team_diff'] = match_stats['bat_team_rating'] - match_stats['bowl_team_rating']
-
-        # Drop rows with missing mappings
-        match_stats.dropna(inplace=True)
-
-        # Features and target
-        X = match_stats[['bat_team_rating', 'bowl_team_rating', 'team_diff', 'total_runs', 'wicket_type']]
-        y = match_stats['batting_team']
-
-        if len(X) < 5:
+        if len(match_stats) < 2:
             return "Not enough data", 0
 
-        # Train the model
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        X = match_stats[['runs_off_bat', 'extras', 'wides']]
+        y = match_stats['batting_team']
+
+        model = LogisticRegression()
         model.fit(X, y)
 
-        # Create prediction input from average stats of last 5 matches
-        recent = X.tail(5).mean().values.reshape(1, -1)
-        prediction = model.predict(recent)[0]
-        proba = model.predict_proba(recent).max()
+        recent_data = match_stats.tail(5)[['runs_off_bat', 'extras', 'wides']].mean().values.reshape(1, -1)
+        prediction = model.predict(recent_data)[0]
+        proba = model.predict_proba(recent_data).max()
 
         return prediction, proba
 
