@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sklearn.linear_model import LogisticRegression
-from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestClassifier
 
 # Load data
 @st.cache_data
@@ -18,62 +17,58 @@ team2 = st.sidebar.selectbox("Select Team 2", df['batting_team'].unique())
 venue = st.sidebar.multiselect("Select Venue(s)", df['venue'].unique())
 innings_filter = st.sidebar.radio("Batting First", ['Both', 'Team 1', 'Team 2'])
 
-# Filter data with proper innings filtering
+# Prevent comparing the same team
+if team1 == team2:
+    st.error("Please select two different teams for comparison.")
+    st.stop()
+
+# Filter data
 def filter_data(team_a, team_b):
-    # Base filter
-    matches = df[(df['batting_team'].isin([team_a, team_b])) & 
-                (df['bowling_team'].isin([team_a, team_b]))]
-    
-    # Venue filter
+    matches = df[(df['batting_team'].isin([team_a, team_b])) &
+                 (df['bowling_team'].isin([team_a, team_b]))]
     if venue:
         matches = matches[matches['venue'].isin(venue)]
-    
-    # Batting first filter
     if innings_filter != 'Both':
         target_team = team_a if innings_filter == 'Team 1' else team_b
-        first_inn_matches = matches[(matches['innings'] == 1) & 
-                                   (matches['batting_team'] == target_team)]['match_id']
+        first_inn_matches = matches[(matches['innings'] == 1) &
+                                    (matches['batting_team'] == target_team)]['match_id']
         matches = matches[matches['match_id'].isin(first_inn_matches)]
-    
     return matches
 
 filtered_df = filter_data(team1, team2)
 
-# Head-to-head Analysis (Fixed)
+# Head-to-Head Analysis
 st.header("🏏 Head-to-Head Analysis")
 
-# Calculate proper wins
 def calculate_wins(data, team_a, team_b):
     matches = data.drop_duplicates('match_id', keep='first')[['match_id', 'batting_team', 'bowling_team', 'runs_off_bat']]
     match_results = []
-    
+
     for match_id in matches['match_id'].unique():
         match_data = data[data['match_id'] == match_id]
         first_inn = match_data[match_data['innings'] == 1]
         second_inn = match_data[match_data['innings'] == 2]
-        
+
         if len(first_inn) == 0 or len(second_inn) == 0:
             continue
-            
+
         team1_runs = first_inn['runs_off_bat'].sum() + first_inn['extras'].sum()
         team2_runs = second_inn['runs_off_bat'].sum() + second_inn['extras'].sum()
-        
-        if team1_runs > team2_runs:
-            winner = first_inn['batting_team'].iloc[0]
-        else:
-            winner = second_inn['batting_team'].iloc[0]
-        
+
+        winner = first_inn['batting_team'].iloc[0] if team1_runs > team2_runs else second_inn['batting_team'].iloc[0]
         match_results.append({'match_id': match_id, 'winner': winner})
-    
+
     results_df = pd.DataFrame(match_results)
+    if 'winner' not in results_df.columns:
+        return 0, 0, 0
+
     team1_wins = results_df[results_df['winner'] == team1].shape[0]
     team2_wins = results_df[results_df['winner'] == team2].shape[0]
     total = team1_wins + team2_wins
-    
+
     return total, team1_wins, team2_wins
 
 total_matches, team1_wins, team2_wins = calculate_wins(filtered_df, team1, team2)
-
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Matches", total_matches)
 col2.metric(f"{team1} Wins", team1_wins)
@@ -94,14 +89,12 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader(f"{team1} Top Batsmen")
     st.dataframe(team1_batsmen, use_container_width=True)
-    
     st.subheader(f"{team1} Top Bowlers")
     st.dataframe(team1_bowlers, use_container_width=True)
 
 with col2:
     st.subheader(f"{team2} Top Batsmen")
     st.dataframe(team2_batsmen, use_container_width=True)
-    
     st.subheader(f"{team2} Top Bowlers")
     st.dataframe(team2_bowlers, use_container_width=True)
 
@@ -110,8 +103,7 @@ st.header("📊 Advanced Statistics")
 tab1, tab2, tab3 = st.tabs(["Run Distribution", "Wicket Types", "Venue Analysis"])
 
 with tab1:
-    fig = px.histogram(filtered_df, x='runs_off_bat', nbins=20, 
-                      title="Run Distribution Histogram")
+    fig = px.histogram(filtered_df, x='runs_off_bat', nbins=20, title="Run Distribution Histogram")
     st.plotly_chart(fig)
 
 with tab2:
@@ -120,9 +112,8 @@ with tab2:
     st.plotly_chart(fig)
 
 with tab3:
-    venue_stats = filtered_df.groupby('venue').agg({'runs_off_bat':'sum', 'wicket_type':'count'})
-    fig = px.bar(venue_stats, x=venue_stats.index, y=['runs_off_bat', 'wicket_type'],
-                title="Venue-wise Performance")
+    venue_stats = filtered_df.groupby('venue').agg({'runs_off_bat': 'sum', 'wicket_type': 'count'})
+    fig = px.bar(venue_stats, x=venue_stats.index, y=['runs_off_bat', 'wicket_type'], title="Venue-wise Performance")
     st.plotly_chart(fig)
 
 # Dream Team
@@ -139,49 +130,55 @@ dream_team = create_dream_team()
 st.write("Best 11 Players from Both Teams:")
 st.write(", ".join(dream_team))
 
-# Prediction Model (Fixed)
-st.header("🔮 Match Prediction")
+from sklearn.ensemble import RandomForestClassifier
+
 def predict_winner():
     try:
-        # Prepare data
-        prediction_df = filtered_df.copy()
-        
-        # Handle missing values
-        prediction_df['wides'] = prediction_df['wides'].fillna(0)
-        prediction_df['extras'] = prediction_df['extras'].fillna(0)
-        prediction_df['runs_off_bat'] = prediction_df['runs_off_bat'].fillna(0)
-        
-        # Aggregate match-level features
-        match_stats = prediction_df.groupby('match_id').agg({
+        # Use filtered_df to simulate match history between the two teams
+        if filtered_df.empty:
+            return "Not enough data", 0
+
+        # Add custom match-level features
+        match_stats = filtered_df.groupby('match_id').agg({
+            'batting_team': 'first',
+            'bowling_team': 'first',
             'runs_off_bat': 'sum',
             'extras': 'sum',
-            'wides': 'sum',
-            'batting_team': 'first'
+            'wicket_type': 'count',
         }).reset_index()
-        
-        if len(match_stats) < 2:
-            return "Not enough data", 0
-        
-        # Prepare features and target
-        X = match_stats[['runs_off_bat', 'extras', 'wides']]
+
+        # Create additional features
+        match_stats['total_runs'] = match_stats['runs_off_bat'] + match_stats['extras']
+        match_stats['bat_team_rating'] = match_stats['batting_team'].map(df['batting_team'].value_counts(normalize=True))
+        match_stats['bowl_team_rating'] = match_stats['bowling_team'].map(df['bowling_team'].value_counts(normalize=True))
+        match_stats['team_diff'] = match_stats['bat_team_rating'] - match_stats['bowl_team_rating']
+
+        # Drop rows with missing mappings
+        match_stats.dropna(inplace=True)
+
+        # Features and target
+        X = match_stats[['bat_team_rating', 'bowl_team_rating', 'team_diff', 'total_runs', 'wicket_type']]
         y = match_stats['batting_team']
-        
-        # Train model
-        model = LogisticRegression()
+
+        if len(X) < 5:
+            return "Not enough data", 0
+
+        # Train the model
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X, y)
-        
-        # Create prediction input (average of last 5 matches)
-        recent_data = match_stats.tail(5)[['runs_off_bat', 'extras', 'wides']].mean().values.reshape(1, -1)
-        prediction = model.predict(recent_data)[0]
-        proba = model.predict_proba(recent_data).max()
-        
+
+        # Create prediction input from average stats of last 5 matches
+        recent = X.tail(5).mean().values.reshape(1, -1)
+        prediction = model.predict(recent)[0]
+        proba = model.predict_proba(recent).max()
+
         return prediction, proba
-    
+
     except Exception as e:
         return "Prediction unavailable", 0
 
 predicted_winner, confidence = predict_winner()
 if predicted_winner != "Prediction unavailable":
-    st.metric("Predicted Winner", f"{predicted_winner} ({confidence*100:.1f}% confidence)")
+    st.metric("Predicted Winner", f"{predicted_winner} ({confidence * 100:.1f}% confidence)")
 else:
     st.warning("Not enough data for prediction")
